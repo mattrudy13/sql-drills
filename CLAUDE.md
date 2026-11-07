@@ -53,10 +53,13 @@ later: `ENHANCEMENTS.md`.
 - `tests/`: `npm test` (installs nothing at runtime; `npm install` once for the DuckDB-WASM dev dependency, ~160 MB
   in node_modules, ignored by git). `tests/duck.cjs` opens the Node build of the same DuckDB-WASM.
 - `favicon.svg`, `apple-touch-icon.png` (rendered from the SVG with headless Chrome).
+- `.claude/launch.json` (git-ignored): `python3 -m http.server 8773` for the preview pane.
 
 ## Checking a change
 
 `npm test`, then open the page, Check a wrong and a right answer on a drill (first Check downloads DuckDB), try a
-choice drill, and look at 1280px and 360px (Task/Query/Result tabs, no sideways scroll). Previewing from the
-GitHub folder root on port 8765 can serve another site's cached `style.css`/`app.js`: reload them with
-`fetch(url, {cache: "reload"})` first.
+choice drill, and look at 1280px and 360px (Task/Query/Result tabs, no sideways scroll). Prefer the repo's own
+server on port 8773. Previewing from the GitHub folder root on port 8765 can serve another site's cached
+`style.css`/`app.js`: reload them with `fetch(url, {cache: "reload"})` first.
+
+Related: Ledger (`../spending`) was built the same day; both came out of the 2026-11-07 new-site ideas.
