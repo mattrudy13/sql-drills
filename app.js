@@ -160,7 +160,7 @@ function renderResult() {
       const head = {
         columns: `Your result has ${f.rows ? f.userColCount : 0} column${f.userColCount === 1 ? "" : "s"}; the answer has ${f.cols.length}: ${f.cols.map((c) => `<code>${esc(c)}</code>`).join(", ")}.`,
         more: `Close: you got ${f.rows} rows, the answer has ${f.expectedRows}.`,
-        fewer: `Close: you got ${f.rows} row${f.rows === 1 ? "" : "s"}, the answer has ${f.expectedRows}.`,
+        fewer: f.rows === 0 ? `No rows came back; the answer has ${f.expectedRows}.` : `Close: you got ${f.rows} row${f.rows === 1 ? "" : "s"}, the answer has ${f.expectedRows}.`,
         values: `Right number of rows (${f.rows}), but some values differ.`,
         order: `Right rows, wrong order.`,
       }[f.kind];
