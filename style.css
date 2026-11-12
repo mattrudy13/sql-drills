@@ -119,6 +119,7 @@ h1 { font-family: var(--serif); font-size: 28px; line-height: 1.2; margin: 6px 0
 .why p, .why li { font-family: var(--serif); font-size: 16px; line-height: 1.55; }
 .why p { margin: 0 0 8px; }
 .why ul { margin: 0 0 8px; padding-left: 20px; }
+.why p.er-link { font-family: var(--sans); font-size: 14px; margin: 10px 0 0; }
 .why.locked { background: var(--bg); border-style: dashed; border-color: var(--line); }
 .why.locked p { font-family: var(--sans); font-size: 14px; color: var(--muted); }
 .plan { margin: 14px 0; }

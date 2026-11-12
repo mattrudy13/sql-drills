@@ -22,7 +22,8 @@ function run(sql) {
 
 test("drill ids are unique and every drill has its parts", () => {
   assert.equal(new Set(DRILLS.map((d) => d.id)).size, DRILLS.length);
-  for (const t of TOPICS) assert.equal(DRILLS.filter((d) => d.topic === t.id).length, 5, t.id);
+  const perTopic = { windows: 5, joins: 5, nulls: 5, cost: 7 }; // cost gained c6 and c7 for Engine Room (2026-11-11)
+  for (const t of TOPICS) assert.equal(DRILLS.filter((d) => d.topic === t.id).length, perTopic[t.id], t.id);
   for (const d of DRILLS) {
     assert.ok(d.title && d.task && d.why && d.hint, d.id);
     if (d.type === "choice") assert.ok(d.options[d.correct], d.id);

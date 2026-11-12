@@ -18,6 +18,8 @@ export const TOPICS = [
 ];
 
 const c = (s) => `<code>${s}</code>`;
+// A link to the matching race in Engine Room (Rudy's "watch the work" site), shown at the end of a "why" note.
+const er = (race, text) => `<p class="er-link"><a href="https://mattrudy13.github.io/engine-room/#${race}">${text} in Engine Room →</a></p>`;
 
 export const DRILLS = [
   // ------------------------------------------------------------ windows
@@ -68,7 +70,9 @@ ORDER BY txn_date, txn_id`,
       fewer: `Only account 101, and only January 2026 (every transaction in it).`,
     },
     why: `<p>A window with ORDER BY but no frame clause uses <strong>RANGE BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW</strong>. RANGE means "every row whose ORDER BY value is ≤ mine", so rows that tie on the date are all counted at once and get the same total.</p>
-<p><strong>ROWS</strong> counts physical rows instead: exactly the ones before this one. Making the ORDER BY unique (adding txn_id) has the same effect and also makes the result repeatable, which matters in Spark, where tied rows can come back in a different order on each run.</p>`,
+<p><strong>ROWS</strong> counts physical rows instead: exactly the ones before this one. Making the ORDER BY unique (adding txn_id) has the same effect and also makes the result repeatable, which matters in Spark, where tied rows can come back in a different order on each run.</p>
+<p>The other way to write a running total, a self-join on dates, pairs every row with every earlier row, so its cost grows with the square of the rows per account.</p>
+${er("window", "Race a window against a self-join")}`,
     wrong: [
       `SELECT txn_id, txn_date, CASE WHEN direction='credit' THEN amount ELSE -amount END AS signed_amount, SUM(CASE WHEN direction='credit' THEN amount ELSE -amount END) OVER (ORDER BY txn_date) AS running_total FROM transactions WHERE account_id = 101 AND txn_date < DATE '2026-02-01' ORDER BY txn_date, txn_id`,
     ],
@@ -407,7 +411,8 @@ FROM (
     correct: 1,
     hint: `Each "Exchange" means sending rows across the network. Count how many rows each plan sends.`,
     why: `<p>A <strong>shuffle</strong> (Exchange hashpartitioning) sends every row over the network so rows with the same key land on the same machine. Plan A shuffles all 50 million fact rows, then sorts them. Cost grows with the big table.</p>
-<p>A <strong>broadcast</strong> join copies the small table to every executor once and joins in place, so the big table is only read where it already sits. Spark picks it automatically when one side is under ${c("spark.sql.autoBroadcastJoinThreshold")} (10 MB by default), and adaptive query execution can switch to it at runtime. ${c("/*+ BROADCAST(b) */")} forces it.</p>`,
+<p>A <strong>broadcast</strong> join copies the small table to every executor once and joins in place, so the big table is only read where it already sits. Spark picks it automatically when one side is under ${c("spark.sql.autoBroadcastJoinThreshold")} (10 MB by default), and adaptive query execution can switch to it at runtime. ${c("/*+ BROADCAST(b) */")} forces it.</p>
+${er("broadcast", "Race broadcast against shuffle")}`,
   },
   {
     id: "c2", topic: "cost", type: "choice", title: "Filter before or after the join?",
@@ -501,6 +506,58 @@ SortMergeJoin(merchant)
     correct: 1,
     hint: `Compare the median and max shuffle read per task.`,
     why: `<p>Hash partitioning sends every row with the same key to the same task. When one key holds 40% of the rows, that task does 40% of the work while the others sit idle, and more executors or more partitions don't help: one key still goes to one partition.</p>
-<p>Fixes: adaptive query execution's skew join (${c("spark.sql.adaptive.skewJoin.enabled")}, on by default in recent Spark and Databricks) splits an oversized partition; broadcasting merchant_details avoids the shuffle entirely if it's small; <strong>salting</strong> adds a random suffix to the hot key on one side and replicates the other side, spreading the hot key over several tasks.</p>`,
+<p>Fixes: adaptive query execution's skew join (${c("spark.sql.adaptive.skewJoin.enabled")}, on by default in recent Spark and Databricks) splits an oversized partition; broadcasting merchant_details avoids the shuffle entirely if it's small; <strong>salting</strong> adds a random suffix to the hot key on one side and replicates the other side, spreading the hot key over several tasks.</p>
+${er("broadcast", "Watch skew pile onto one worker")}`,
+  },
+  {
+    id: "c6", topic: "cost", type: "choice", title: "Which join will Spark pick?",
+    task: `Two joins run on the same cluster with default settings. Join 1: ${c("fact_txns")} to ${c("fact_payments")} on ${c("txn_id")}. Join 2: ${c("fact_txns")} to ${c("currencies")} on ${c("currency_code")}. Which join method does Spark use for each, and why?`,
+    plans: [
+      { label: "Table sizes", text: `fact_txns       50,000,000 rows   6.1 GB
+fact_payments   30,000,000 rows   3.4 GB
+currencies             150 rows   9 KB
+
+spark.sql.autoBroadcastJoinThreshold = 10 MB` },
+    ],
+    options: [
+      "Hash join for both: it does the least work, so Spark always uses it",
+      "Join 1 sort-merge: a hash table built from 30M rows won't fit in one executor's memory, so Spark sorts both sides and walks them. Join 2 broadcast hash join: 150 rows fit easily, so the small table is copied to every executor",
+      "Nested loop for both, because both are equality joins",
+      "Broadcast for both: Spark always broadcasts the smaller side",
+    ],
+    correct: 1,
+    hint: `A hash join is the least work, but it needs the whole build side in memory on one machine. Which side would that be in each join, and how big is it?`,
+    why: `<p>Three ways to join. A <strong>nested loop</strong> compares every row with every row (rows × rows), so Spark only uses it when there's no equality to join on. A <strong>hash join</strong> builds a lookup table from one side and probes it once per row of the other (rows + rows), the least work, but the lookup table has to fit in memory. A <strong>sort-merge join</strong> sorts both sides (about n × log₂ n each) and then walks them together; it's more work than hashing but it never needs one side in memory at once.</p>
+<p>So Spark broadcasts and hash-joins when one side is under ${c("autoBroadcastJoinThreshold")}, and falls back to sort-merge for two big tables. Adaptive query execution can switch a sort-merge to a broadcast at runtime once it sees the real sizes after a filter.</p>
+${er("joins", "Race the three join methods")}`,
+  },
+  {
+    id: "c7", topic: "cost", title: "Find the hot key",
+    task: `Before joining ${c("transactions")} to a merchant table on ${c("merchant")}, check whether the join key is skewed. Return every merchant with ${c("txns")} (its number of transactions) and ${c("pct")} (its share of <strong>all</strong> transactions, as a percent rounded to 1 decimal place), busiest first.`,
+    tables: ["transactions"],
+    ordered: true,
+    answer: `SELECT
+  merchant,
+  COUNT(*) AS txns,
+  ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS pct
+FROM transactions
+GROUP BY merchant
+ORDER BY txns DESC`,
+    hint: `You need each merchant's count and the grand total in the same row. A window function runs after GROUP BY, so it can add up the grouped counts.`,
+    traps: {
+      values: `${c("pct")} is a share of all 680 transactions. After GROUP BY, ${c("COUNT(*) OVER ()")} counts the 8 merchant rows, not the transactions, and ${c("PARTITION BY merchant")} divides each merchant by itself. ${c("SUM(COUNT(*)) OVER ()")} adds up the grouped counts. And multiply by 100 for a percent.`,
+      order: `Busiest first: order by the count, highest to lowest.`,
+      more: `One row per merchant: there are 8.`,
+      fewer: `One row per merchant: there are 8, including the ones with only a few transactions.`,
+    },
+    why: `<p>Window functions run <strong>after</strong> GROUP BY, on the grouped rows. So inside the window, ${c("COUNT(*)")} is each merchant's count, and ${c("SUM(COUNT(*)) OVER ()")} adds those counts across every row (an empty OVER means "the whole result"). That's the grand total, without a second query or a subquery.</p>
+<p>Corner Cafe holds about a third of all transactions. In a shuffle join on merchant, every Corner Cafe row goes to the same task, so that one task does a third of the work. Running this check before a big join tells you whether to broadcast the small side, rely on adaptive skew-join handling, or salt the key.</p>
+${er("broadcast", "See skew in a shuffle join")}`,
+    wrong: [
+      `SELECT merchant, COUNT(*) AS txns, ROUND(100.0 * COUNT(*) / COUNT(*) OVER (), 1) AS pct FROM transactions GROUP BY merchant ORDER BY txns DESC`,
+      `SELECT merchant, COUNT(*) AS txns, ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (PARTITION BY merchant), 1) AS pct FROM transactions GROUP BY merchant ORDER BY txns DESC`,
+      `SELECT merchant, COUNT(*) AS txns, ROUND(COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS pct FROM transactions GROUP BY merchant ORDER BY txns DESC`,
+      `SELECT merchant, COUNT(*) AS txns, ROUND(100.0 * COUNT(*) / SUM(COUNT(*)) OVER (), 1) AS pct FROM transactions GROUP BY merchant ORDER BY merchant`,
+    ],
   },
 ];

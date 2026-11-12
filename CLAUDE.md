@@ -10,6 +10,9 @@ later: `ENHANCEMENTS.md`.
 
 - **v0.1** (2026-11-07): 20 drills (5 per topic), editor with highlighting, Run/Check with a row diff, hints,
   Show answer, "why it works" notes, phone Task/Query/Result tabs with a SQL key row.
+- **v0.2** (2026-11-11): two cost drills for Engine Room (`../engine-room`): c6 "Which join will Spark pick?" (choice)
+  and c7 "Find the hot key" (written SQL, uses the data's natural skew: Corner Cafe has ~32% of transactions).
+  c1, c5, c6, c7 and w2 end their "why" note with a link to the matching Engine Room race (`er()` in drills.js).
 
 ## Rudy's choices (ask before changing)
 
@@ -37,7 +40,8 @@ later: `ENHANCEMENTS.md`.
 
 ## Adding a drill
 
-1. Add it to `DRILLS` in `drills.js` (5 per topic is what the tests expect today; change the test if a topic grows).
+1. Add it to `DRILLS` in `drills.js` (the test pins drills per topic: 5, 5, 5 and 7 for cost; update `perTopic`
+   when a topic grows). A written-SQL drill can sit in the cost topic too (c7); the page picks the editor by `type`.
 2. If it needs a trap the data doesn't have, plant rows in `data.js` with a comment naming the drill.
 3. Give it `wrong`: the common mistakes. `npm test` runs the answer and proves every wrong query fails the check and
    has trap text for the way it fails. Don't ship a drill whose wrong answers pass.
